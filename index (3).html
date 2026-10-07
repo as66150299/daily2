@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="时间表">
+<meta name="theme-color" content="#2c5f8a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<title>我的一天时间表</title>
+<style>
+body{margin:0}
+/* Layout: single column "day dial" — now-card on top, phased timeline, then evening plan & check */
+:root{
+  --bg:#eef1f4; --surface:#ffffff; --sunk:#e3e8ee; --ink:#18212b; --muted:#5d6b79; --line:#d3dae2;
+  --accent:#2c5f8a; --gold:#b07a12; --gold-soft:#f6ecd4; --moon:#5b4f9a; --moon-soft:#e8e5f6; --ok:#2e7d55; --danger:#b23a2e;
+  --display:"Noto Serif SC","Songti SC",serif; --body:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#10161d; --surface:#18212b; --sunk:#1f2a36; --ink:#e6ebf0; --muted:#94a3b2; --line:#2b3846;
+  --accent:#7fb0dc; --gold:#e3b04d; --gold-soft:#3a2f17; --moon:#ada3ee; --moon-soft:#2a2645; --ok:#6cc596; --danger:#ef8a7e; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#10161d; --surface:#18212b; --sunk:#1f2a36; --ink:#e6ebf0; --muted:#94a3b2; --line:#2b3846;
+  --accent:#7fb0dc; --gold:#e3b04d; --gold-soft:#3a2f17; --moon:#ada3ee; --moon-soft:#2a2645; --ok:#6cc596; --danger:#ef8a7e; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.6;padding-inline:16px;padding-block:20px 48px}
+.wrap{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:22px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+header{display:flex;flex-direction:column;gap:6px}
+.dateline{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;color:var(--muted);font-size:13px;letter-spacing:.04em}
+.clock{font-family:var(--mono);font-size:15px;color:var(--ink)}
+.motto{font-family:var(--display);font-weight:800;font-size:clamp(20px,5vw,28px);line-height:1.35;text-wrap:balance;margin:0}
+.motto span{white-space:nowrap}
+.motto .m1{color:var(--gold)} .motto .m3{color:var(--moon)}
+
+.now{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:10px}
+.now.gold{border-color:var(--gold);background:linear-gradient(var(--gold-soft),var(--surface) 70%)}
+.now.night{border-color:var(--moon);background:linear-gradient(var(--moon-soft),var(--surface) 70%)}
+.eyebrow{font-size:12px;letter-spacing:.12em;color:var(--muted);font-weight:500}
+.now h2{margin:0;font-size:24px;font-weight:700;line-height:1.3}
+.now .range{font-size:14px;color:var(--muted)}
+.now p{margin:0}
+.bar{height:6px;background:var(--sunk);border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:3px;transition:width .4s}
+.now.gold .bar i{background:var(--gold)} .now.night .bar i{background:var(--moon)}
+.nowfoot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+
+.focus{display:grid;grid-template-columns:1fr;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+.focus .core{font-size:17px;font-weight:700}
+.focus .core.empty{color:var(--muted);font-weight:400;font-size:15px}
+.focus ul{margin:0;padding-left:1.2em;color:var(--muted)}
+
+h3.sec{font-family:var(--display);font-size:19px;margin:0;display:flex;align-items:baseline;gap:10px}
+h3.sec small{font-family:var(--body);font-size:12px;color:var(--muted);font-weight:400;letter-spacing:.04em}
+
+.phase{display:flex;flex-direction:column;gap:2px}
+.phase-h{display:flex;align-items:center;gap:10px;margin:14px 0 6px;font-size:13px;font-weight:700;letter-spacing:.1em;color:var(--muted)}
+.phase-h::after{content:"";flex:1;height:1px;background:var(--line)}
+.row{display:grid;grid-template-columns:28px 98px 1fr;gap:10px;align-items:start;padding:10px 8px;border-radius:10px}
+.row.past{opacity:.55}
+.row.cur{background:var(--surface);outline:2px solid var(--accent);opacity:1}
+.row.gold .t{color:var(--gold)}
+.row .t{font-family:var(--mono);font-size:13px;padding-top:2px;font-variant-numeric:tabular-nums}
+.row .what{min-width:0}
+.row .name{font-weight:700;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.row .note{color:var(--muted);font-size:13.5px}
+.tag{font-size:11px;font-weight:500;padding:1px 7px;border-radius:999px;letter-spacing:.04em}
+.tag.g{background:var(--gold-soft);color:var(--gold)}
+.tag.a{background:var(--sunk);color:var(--accent)}
+.tag.n{background:var(--moon-soft);color:var(--moon)}
+input[type=checkbox]{width:20px;height:20px;margin:2px 0 0;accent-color:var(--ok);cursor:pointer}
+.row.done .name{text-decoration:line-through;text-decoration-color:var(--muted)}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:14px}
+.panel.night{border-color:var(--moon)}
+label.f{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--muted);font-weight:500}
+label.f input,label.f textarea{font:inherit;font-size:15px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 11px;width:100%}
+label.f textarea{min-height:64px;resize:vertical}
+label.f input:focus,label.f textarea:focus{outline:2px solid var(--moon);outline-offset:1px;border-color:transparent}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:520px){.two{grid-template-columns:1fr}.row{grid-template-columns:26px 84px 1fr;gap:8px}}
+.saved{font-size:12px;color:var(--ok);min-height:1em}
+.checks{display:flex;flex-direction:column;gap:4px}
+.checks label{display:flex;gap:10px;align-items:center;padding:8px 4px;font-size:15px;cursor:pointer}
+.score{font-family:var(--mono);font-size:13px;color:var(--muted)}
+.week{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;text-align:center;font-size:11px;color:var(--muted)}
+.week .d{display:flex;flex-direction:column;gap:4px;align-items:center}
+.pips{display:grid;grid-template-columns:repeat(2,8px);gap:3px}
+.pips i{width:8px;height:8px;border-radius:2px;background:var(--sunk)}
+.pips i.on{background:var(--ok)}
+.week .today b{color:var(--ink)}
+
+details{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 18px}
+summary{cursor:pointer;font-weight:700}
+details dl{margin:10px 0 0;display:flex;flex-direction:column;gap:12px}
+dt{font-weight:700;font-size:14px} dd{margin:2px 0 0;color:var(--muted);font-size:14px}
+button{font:inherit;cursor:pointer}
+.btn{background:var(--sunk);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 12px;font-size:13px}
+.btn:hover{border-color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.rescue{font-size:13.5px;color:var(--muted);background:var(--sunk);border-radius:10px;padding:10px 12px}
+.syncnote{font-size:12px;color:var(--muted);text-align:center}
+@media (prefers-reduced-motion:reduce){.bar i{transition:none}}
+
+.row{grid-template-columns:28px 98px 1fr auto}
+@media (max-width:520px){.row{grid-template-columns:26px 84px 1fr auto}}
+.editbtn{background:none;border:1px solid var(--line);color:var(--muted);border-radius:7px;padding:2px 9px;font-size:12px;align-self:start}
+.editbtn:hover{color:var(--accent);border-color:var(--accent)}
+.memo{font-size:13.5px;color:var(--accent);margin-top:2px;white-space:pre-wrap}
+.editor{background:var(--surface);border:1px solid var(--accent);border-radius:12px;padding:14px;margin:4px 0 8px;display:flex;flex-direction:column;gap:10px}
+.editor input[type=time]{font-family:var(--mono)}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+.btn.primary{background:var(--accent);color:var(--surface);border-color:var(--accent)}
+.btn.danger{color:var(--danger);border-color:var(--danger)}
+.days{display:flex;flex-direction:column;gap:10px}
+.strip{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
+.day{flex:0 0 auto;width:52px;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0 6px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+.day .wd{font-size:11px;color:var(--muted)}
+.day .dn{font-family:var(--mono);font-size:17px;font-weight:600;line-height:1.2}
+.day .dot{width:5px;height:5px;border-radius:50%;background:var(--moon)}
+.day .dot.off{background:transparent}
+.day.before{opacity:.6}
+.day.today .wd{color:var(--accent);font-weight:700}
+.day.sel{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+.day.sel .wd{color:var(--surface)}
+.day.sel .dot{background:var(--surface)}
+.day.sel .dot.off{background:transparent}
+.daytools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+#pickDate{font:inherit;font-size:14px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:5px 8px}
+.banner{background:var(--moon-soft);color:var(--moon);border-radius:10px;padding:10px 14px;font-weight:700}
+.hint{margin:0;color:var(--muted);font-size:13.5px}
+details.sub{border:none;padding:0;background:none}
+details.sub summary{font-weight:500;font-size:13.5px;color:var(--accent)}
+label.btn{display:inline-flex;align-items:center;cursor:pointer}
+.tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+</style>
+</head><body>
+
+
+<div class="wrap">
+  <header>
+    <div class="dateline"><span id="date">—</span><span class="clock" id="clock">--:--</span></div>
+    <h1 class="motto"><span class="m1">上午改变现实，</span><span>下午落实结果，</span><span class="m3">晚上恢复自己，</span><span>睡前安排明天。</span></h1>
+  </header>
+
+  <nav class="days" aria-label="选择日期">
+    <div class="strip" id="strip"></div>
+    <div class="daytools"><label class="pick" for="pickDate">更远的日期</label><input type="date" id="pickDate"><button class="btn" id="backToday" type="button" hidden>回到今天</button></div>
+    <div class="banner" id="viewBanner" hidden></div>
+  </nav>
+
+  <section class="now" id="now" aria-live="polite">
+    <div class="eyebrow" id="nowEyebrow">现在</div>
+    <h2 id="nowName">—</h2>
+    <div class="range mono" id="nowRange"></div>
+    <p id="nowNote"></p>
+    <div class="bar"><i id="nowBar" style="width:0"></i></div>
+    <div class="nowfoot"><span id="nowLeft"></span><span id="nowNext"></span></div>
+  </section>
+
+  <section class="focus" aria-label="今天的核心结果">
+    <div class="eyebrow" id="focusEyebrow">今天唯一最重要的结果（昨晚定的）</div>
+    <div class="core empty" id="todayCore">还没有计划。今晚 21:45 在下面写好明天的，或者现在补一个。</div>
+    <ul id="todayAux" hidden></ul>
+    <div id="todayGold" class="note" hidden></div>
+    <div><button class="btn" id="editToday" type="button">编辑今天的计划</button></div>
+    <div class="rescue" id="rescue" hidden>上午被打乱了不等于今天废了。找一段 60–90 分钟的替代黄金块，先完成核心任务的一部分。</div>
+  </section>
+
+  <section>
+    <h3 class="sec">今日时间表 <small>做完就勾上，点“编辑”可修改</small></h3>
+    <p class="hint" id="schedState"></p>
+    <div id="timeline"></div>
+    <div class="tools"><button class="btn" id="addBtn" type="button">＋ 添加一项</button><button class="btn" id="dayResetBtn" type="button" hidden>这一天恢复默认时间表</button><button class="btn" id="setDefaultBtn" type="button">把这一天设为以后的默认</button><button class="btn" id="docResetBtn" type="button">默认恢复成文档原版</button></div>
+    <div class="saved" id="schedMsg"></div>
+  </section>
+
+  <section class="panel night" id="planPanel">
+    <h3 class="sec" id="planTitle">明日计划 <small>⭐ 锚点 · 21:45</small></h3>
+    <label class="f">明天唯一核心结果<input id="pCore" placeholder="例：完成现金流分析并形成方案（要具体，不要“想想未来”）"></label>
+    <div class="two">
+      <label class="f">辅助任务 1<input id="pAux1"></label>
+      <label class="f">辅助任务 2<input id="pAux2"></label>
+    </div>
+    <label class="f">黄金时间 09:00–11:30 做什么<textarea id="pGold" placeholder="09:00 开始第一步是……"></textarea></label>
+    <div class="saved" id="planSaved"></div>
+  </section>
+
+  <section class="panel">
+    <h3 class="sec">每晚 5 分钟自检 <small class="score" id="score">0 / 4</small></h3>
+    <div class="checks" id="checks"></div>
+    <div class="week" id="week"></div>
+  </section>
+
+  <section class="panel" id="backupPanel" hidden>
+    <h3 class="sec">备份与恢复 <small id="storeStat"></small></h3>
+    <p class="hint">有些手机每次重新打开这个文件时会清空记录。建议每天用完点“导出备份”；如果打开后发现记录没了，点“导入备份”选最新的备份文件就能找回来。</p>
+    <div class="btns"><button class="btn primary" id="expBtn" type="button">导出备份</button><label class="btn" for="impFile">导入备份</label><input type="file" id="impFile" accept=".json,.txt,application/json,text/plain" hidden></div>
+    <details class="sub"><summary>文字备份（导出文件不行时用）</summary>
+      <label class="f" style="margin-top:10px">备份内容<textarea id="bkText" placeholder="点“生成并复制”，或把之前保存的备份文字粘贴到这里"></textarea></label>
+      <div class="btns" style="margin-top:8px"><button class="btn" id="copyBk" type="button">生成并复制</button><button class="btn" id="restoreBk" type="button">从这段文字恢复</button></div>
+    </details>
+    <div class="saved" id="bkMsg"></div>
+  </section>
+
+  <details>
+    <summary>四个锚点与提醒规则</summary>
+    <dl>
+      <div><dt>⚓ 四个不可轻易动的锚点</dt><dd>起床 ~07:30 · 黄金工作块 09:00–11:30 · 做明天计划 ~21:45 · 入睡准备 ~23:00（手机不进床）</dd></div>
+      <div><dt>黄金时间原则</dt><dd>09:00–11:30 是最贵的 2.5 小时：不刷新闻、不回微信、不做无边界思考。任务要能产生具体结果，比如“完成现金流分析并形成方案”，而不是“想想未来”。</dd></div>
+      <div><dt>8 点后原则</dt><dd>晚上 8 点以后不再试图改变命运，只负责恢复、生活、轻度建设和为明天准备。</dd></div>
+      <div><dt>失控保护规则</dt><dd>上午被突发事情打乱不等于今天废了。至少重新找一个 60–90 分钟的替代黄金块，完成核心任务的一部分。</dd></div>
+    </dl>
+  </details>
+  <div class="syncnote" id="syncnote"></div>
+</div>
+
+<script>
+const DEFAULT=[
+ ["07:30","08:00","起床 · 洗漱 · 喝水 · 简单活动","不刷短视频、爽剧、网文；不处理复杂信息，不让手机抢走第一注意力",{anchor:1}],
+ ["08:00","08:30","早餐","安静吃饭，可和家人交流，不边吃边刷高刺激内容"],
+ ["08:30","09:00","今日启动","只看昨晚已制定的计划，确认今天唯一最重要的结果"],
+ ["09:00","10:00","黄金时间①","做当天最重要、最困难、最能改变现实的事情",{gold:1}],
+ ["10:00","11:00","黄金时间②","继续核心任务，不换题、不回无关消息",{gold:1}],
+ ["11:00","11:30","黄金时间③ / 收口","把上午工作形成阶段结果：方案、决定、电话名单、材料等",{gold:1}],
+ ["11:30","12:00","消息 / 电话集中处理","统一回复微信和电话，避免全天被切碎"],
+ ["12:00","13:00","午饭","真正吃饭放松，不启动连续剧情"],
+ ["13:00","13:30","午休 · 闭眼休息","20–30 分钟即可，恢复下午状态"],
+ ["13:30","14:00","下午启动","看上午结果，明确下午需要落实的 2–3 个动作"],
+ ["14:00","15:00","执行时间①","电话、客户、合作、融资、回款、资源对接等"],
+ ["15:00","16:00","执行时间②","会议、见人、外出、谈判、推进具体节点"],
+ ["16:00","17:00","执行时间③","跟进结果，把“谈过”变成“有下一步”"],
+ ["17:00","17:30","工作收口","记录今天完成 / 未完成 / 明天继续项"],
+ ["17:30","18:30","吃饭 · 回家 · 过渡","工作状态下降，不急着开新战役"],
+ ["18:30","19:30","家人 / 散步 / 运动","让身体和注意力真正离开白天工作"],
+ ["19:30","20:30","轻工作或长期建设","阅读、学习、整理资料；不处理最艰难的核心问题"],
+ ["20:30","21:15","有边界的休息娱乐","提前决定内容和结束时间，避开容易失控的连续爽剧 / 网文"],
+ ["21:15","21:45","洗澡 · 放松 · 降低刺激","手机开始退出生活中心"],
+ ["21:45","22:15","明日计划","写明天唯一核心结果、两个辅助任务、黄金时间要做什么",{anchor:1}],
+ ["22:15","23:00","安静时间","纸质书、聊天、简单整理，不开新的高刺激内容"],
+ ["23:00","23:30","上床准备睡眠","手机不进床；让身体形成固定入睡信号",{anchor:1}],
+ ["23:30","07:30","睡觉","尽量保证约 8 小时睡眠",{anchor:1}],
+].map(([s,e,name,note,f={}],i)=>({id:"b"+i,s,e,name,note,...f}));
+const PHASES={am:"上午 · 改变现实",pm:"下午 · 落实结果",ev:"晚上 · 恢复自己",bed:"睡前 · 安排明天"};
+const CHECKS=["睡眠守住了吗？","黄金时间守住了吗？","今天产生现实结果了吗？","晚上按时退出了吗？"];
+const WD="日一二三四五六";
+
+const m=t=>{const[h,mm]=String(t).split(":").map(Number);return (h||0)*60+(mm||0)};
+const pad=n=>String(n).padStart(2,"0");
+const key=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const addDays=(d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x};
+const $=id=>document.getElementById(id);
+const clone=o=>JSON.parse(JSON.stringify(o));
+
+/* The day runs 04:00 → 04:00, so late-night entries still belong to "today" */
+const DAY_START=240;
+function dayOf(now){return now.getHours()*60+now.getMinutes()<DAY_START?addDays(now,-1):now}
+const dayMin=t=>t<DAY_START?t+1440:t;            // minutes on the 04:00-based day
+const sortKey=b=>dayMin(m(b.s));
+const endKey=b=>{const s=sortKey(b);let e=dayMin(m(b.e));if(e<=s)e+=1440;return e};
+function phaseOf(b){const t=sortKey(b);return t<720?"am":t<1050?"pm":t<1305?"ev":"bed"}
+const isNight=b=>sortKey(b)>=1230;
+const isAnchor=b=>!!b.anchor;
+
+/* Each day can have its own schedule (day.sched); days without one use the default TEMPLATE */
+let TEMPLATE=clone(DEFAULT);
+let BLOCKS=clone(DEFAULT);   // schedule of the day being viewed
+const sorted=items=>items.slice().sort((a,b)=>sortKey(a)-sortKey(b));
+function setSchedule(items){BLOCKS=sorted(items)}   // local only, not saved
+const hasOwn=v=>Array.isArray(v.sched)&&v.sched.length>0;
+async function blocksFor(k){const v=await store.get(k);return sorted(hasOwn(v)?v.sched:TEMPLATE)}
+async function loadView(){BLOCKS=await blocksFor(viewKey())}
+async function saveDaySched(items){            // save to the viewed day only
+  const k=viewKey(),v=await store.get(k);v.sched=sorted(items);store.put(k,v);BLOCKS=clone(v.sched);
+}
+
+/* ---------- storage: private db per viewer when online, browser storage otherwise ---------- */
+const store={db:null,uid:null,cache:{},timers:{},
+  async init(){
+    try{
+      const db=await window.claude?.use?.("db"); const user=await window.claude?.use?.("user");
+      const uid=user?await user.id():null;
+      if(db&&uid){this.db=db;this.uid=uid}
+    }catch(e){}
+    $("syncnote").textContent=this.db?"已保存到你的账户。":"记录保存在这台手机上，断网也能用。";
+  },
+  ref(k){return this.db.collection("data/users/"+this.uid).doc(k)},
+  async read(k){
+    if(this.db){try{const s=await this.ref(k).get();return s.data()||null}catch(e){return null}}
+    try{return JSON.parse(localStorage.getItem(k)||"null")}catch(e){return null}
+  },
+  write(k,v){
+    if(!this.db){   // offline: save immediately, nothing waits
+      try{localStorage.setItem(k,JSON.stringify(v));localStorage.setItem("meta:lastSaved",String(Date.now()))}
+      catch(e){$("bkMsg").textContent="这台手机的浏览器不允许保存，请用“导出备份”保存记录。"}
+      updateStat();return;
+    }
+    clearTimeout(this.timers[k]);
+    this.timers[k]=setTimeout(async()=>{
+      try{await this.ref(k).set(v)}catch(e){$("syncnote").textContent="保存失败，请检查网络后再改一次。"}
+    },300);
+  },
+  async get(day){
+    const k=this.db?"d"+day:"day:"+day;
+    if(this.cache[k])return this.cache[k];
+    const v=Object.assign({done:{},check:{},plan:{},memo:{}},(await this.read(k))||{});
+    return this.cache[k]=v;
+  },
+  put(day,v){const k=this.db?"d"+day:"day:"+day;this.cache[k]=v;this.write(k,v)},
+  async getSched(){const v=await this.read(this.db?"schedule":"schedule");return v&&Array.isArray(v.items)&&v.items.length?v.items:null},
+  putSched(items){this.write("schedule",{items})}
+};
+
+const isDone=(v,b)=>!!(v.done[b.id]||(/^b\d+$/.test(b.id)&&v.done[b.id.slice(1)]));
+function setDone(v,b,x){v.done[b.id]=x;if(/^b\d+$/.test(b.id))delete v.done[b.id.slice(1)]}
+
+let editTarget=null;   // "today" | "tomorrow": which day's plan the form edits
+let openId=null, isNew=false, armed=null;
+let viewDay=null;  // the date being viewed; null = today
+const todayD=()=>dayOf(new Date());
+const viewD=()=>viewDay||todayD();
+const viewKey=()=>key(viewD());
+const viewingToday=()=>viewKey()===key(todayD());
+const MD=d=>`${d.getMonth()+1}月${d.getDate()}日`;
+function rel(d){const n=Math.round((new Date(key(d))-new Date(key(todayD())))/864e5);return n===0?"今天":n===1?"明天":n===2?"后天":n===-1?"昨天":""}
+const dayLabel=d=>MD(d)+(rel(d)?"（"+rel(d)+"）":"");
+const autoTarget=()=>dayMin(nowMin(new Date()))>=m("17:30")?"tomorrow":"today";
+
+const nowMin=now=>now.getHours()*60+now.getMinutes()+now.getSeconds()/60;
+function curBlock(now,L){
+  const t=dayMin(nowMin(now));
+  return L.find(b=>t>=sortKey(b)&&t<endKey(b))||L.find(b=>{const t2=t+1440;return t2>=sortKey(b)&&t2<endKey(b)})||null;
+}
+function nextAfter(now,L){const t=dayMin(nowMin(now));return L.find(b=>sortKey(b)>t)||L[0]}
+const fmtLeft=n=>{n=Math.max(0,Math.ceil(n));return n>=60?`${Math.floor(n/60)} 小时 ${n%60} 分`:`${n} 分钟`};
+const range=b=>`${b.s} – ${b.e}`;
+
+async function renderNow(){
+  const now=new Date(), d=dayOf(now);
+  $("date").textContent=`${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日 · 星期${WD[now.getDay()]}`;
+  $("clock").textContent=`${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  const live=viewingToday();
+  const TB=live?BLOCKS:await blocksFor(key(d));   // the "now" card always follows today's schedule
+  const t=dayMin(nowMin(now)), b=TB.length?curBlock(now,TB):null, card=$("now");
+  if(!TB.length){card.className="now";$("nowEyebrow").textContent="现在";$("nowName").textContent="今天没有安排";["nowRange","nowNote","nowLeft","nowNext"].forEach(id=>$(id).textContent="");$("nowBar").style.width="0"}
+  else if(b){
+    let s=sortKey(b),e=endKey(b),x=t<s?t+1440:t;
+    const nx=TB[(TB.indexOf(b)+1)%TB.length];
+    card.className="now"+(b.gold?" gold":isNight(b)?" night":"");
+    $("nowEyebrow").textContent="现在 · "+PHASES[phaseOf(b)];
+    $("nowName").textContent=(b.gold?"⭐ ":isNight(b)?"🌙 ":"")+b.name;
+    $("nowRange").textContent=range(b);
+    $("nowNote").textContent=b.note||"";
+    $("nowBar").style.width=Math.min(100,(x-s)/(e-s)*100).toFixed(2)+"%";
+    $("nowLeft").textContent="还剩 "+fmtLeft(e-x);
+    $("nowNext").textContent=`接下来 ${nx.s} ${nx.name}`;
+  }else{
+    const nx=nextAfter(now,TB);let wait=sortKey(nx)-t;if(wait<0)wait+=1440;
+    card.className="now";
+    $("nowEyebrow").textContent="现在 · 空档";
+    $("nowName").textContent="自由时间";
+    $("nowRange").textContent="";
+    $("nowNote").textContent="这段时间没有安排。";
+    $("nowBar").style.width="0";
+    $("nowLeft").textContent=`${fmtLeft(wait)}后开始下一项`;
+    $("nowNext").textContent=`接下来 ${nx.s} ${nx.name}`;
+  }
+  document.querySelectorAll(".row").forEach(r=>{
+    const bb=BLOCKS.find(x=>x.id===r.dataset.id); if(!bb)return;
+    r.classList.toggle("cur",live&&bb===b);
+    r.classList.toggle("past",live&&bb!==b&&t>=endKey(bb));
+  });
+  const v=await store.get(key(d));
+  const golds=TB.filter(x=>x.gold);
+  const goldDone=golds.length&&golds.every(x=>isDone(v,x));
+  $("rescue").hidden=!(live&&golds.length&&t>=m("11:30")&&t<m("17:30")&&!goldDone);
+  const want=autoTarget();
+  if(live&&want!==editTarget&&!document.activeElement?.closest?.("#planPanel")){editTarget=want;fillPlan()}
+}
+
+function field(label,id,val,type="text"){
+  const l=document.createElement("label");l.className="f";l.textContent=label;
+  const i=type==="area"?document.createElement("textarea"):document.createElement("input");
+  if(type!=="area")i.type=type;i.id=id;i.value=val||"";l.append(i);return l;
+}
+function btn(text,cls,fn){const b=document.createElement("button");b.type="button";b.className="btn "+cls;b.textContent=text;b.onclick=fn;return b}
+
+async function buildEditor(b,k){
+  const v=await store.get(k), ed=document.createElement("div");ed.className="editor";
+  const two=document.createElement("div");two.className="two";
+  two.append(field("开始","eS",b.s,"time"),field("结束","eE",b.e,"time"));
+  ed.append(two,field("安排","eName",b.name),field("备注 / 要求","eNote",b.note,"area"),field(viewingToday()?"今天的记录（只记在今天）":`${dayLabel(viewD())}的具体内容（只记在这一天）`,"eMemo",v.memo[b.id],"area"));
+  const bs=document.createElement("div");bs.className="btns";
+  bs.append(
+    btn("保存","primary",async()=>{
+      const s=$("eS").value,e=$("eE").value,name=$("eName").value.trim();
+      if(!s||!e||!name){$("eName").focus();return}
+      const items=BLOCKS.map(x=>x.id===b.id?{...x,s,e,name,note:$("eNote").value.trim()}:x);
+      await saveDaySched(items);
+      const vv=await store.get(k);const memo=$("eMemo").value.trim();
+      if(memo)vv.memo[b.id]=memo;else delete vv.memo[b.id];store.put(k,vv);
+      openId=null;isNew=false;await renderTimeline();renderNow();
+    }),
+    btn("取消","",async()=>{
+      if(isNew){setSchedule(BLOCKS.filter(x=>x.id!==b.id))}
+      openId=null;isNew=false;await renderTimeline();renderNow();
+    }),
+    btn(isNew?"":"删除这一项","danger",async function(){
+      if(armed!=="del"){armed="del";this.textContent="再点一次确认删除";return}
+      armed=null;await saveDaySched(BLOCKS.filter(x=>x.id!==b.id));
+      openId=null;await renderTimeline();renderNow();
+    })
+  );
+  if(isNew)bs.lastChild.remove();
+  ed.append(bs);
+  return ed;
+}
+
+async function renderTimeline(){
+  const k=viewKey(), v=await store.get(k);
+  const el=$("timeline"); el.innerHTML="";armed=null;
+  const own=hasOwn(v);
+  $("schedState").textContent=own?"这一天的专属时间表":"这一天用的是默认时间表，改动只影响这一天";
+  $("dayResetBtn").hidden=!own;
+  $("dayResetBtn").textContent="这一天恢复默认时间表";$("setDefaultBtn").textContent="把这一天设为以后的默认";$("docResetBtn").textContent="默认恢复成文档原版";
+  if(!BLOCKS.length){const p=document.createElement("p");p.className="hint";p.textContent="这一天还没有安排，点下面的“＋ 添加一项”。";el.append(p)}
+  let phase=null, box=null;
+  for(const b of BLOCKS){
+    const ph=phaseOf(b);
+    if(ph!==phase){phase=ph;box=document.createElement("div");box.className="phase";
+      const h=document.createElement("div");h.className="phase-h";h.textContent=PHASES[phase];box.append(h);el.append(box)}
+    const done=isDone(v,b);
+    const r=document.createElement("div");r.className="row"+(b.gold?" gold":"")+(done?" done":"");r.dataset.id=b.id;
+    const cb=document.createElement("input");cb.type="checkbox";cb.id="cb-"+b.id;cb.checked=done;cb.setAttribute("aria-label",b.name+" 完成");
+    cb.onchange=async()=>{const vv=await store.get(k);setDone(vv,b,cb.checked);r.classList.toggle("done",cb.checked);store.put(k,vv);renderNow()};
+    const tm=document.createElement("div");tm.className="t";tm.textContent=`${b.s}–${b.e}`;
+    const w=document.createElement("div");w.className="what";
+    const n=document.createElement("label");n.className="name";n.htmlFor=cb.id;n.textContent=b.name;
+    if(b.gold){const g=document.createElement("span");g.className="tag g";g.textContent="黄金时间";n.append(g)}
+    else if(isAnchor(b)){const g=document.createElement("span");g.className="tag "+(isNight(b)?"n":"a");g.textContent="⚓ 锚点";n.append(g)}
+    w.append(n);
+    if(b.note){const no=document.createElement("div");no.className="note";no.textContent=b.note;w.append(no)}
+    if(v.memo[b.id]){const me=document.createElement("div");me.className="memo";me.textContent="📝 "+v.memo[b.id];w.append(me)}
+    const eb=document.createElement("button");eb.type="button";eb.className="editbtn";eb.textContent=openId===b.id?"收起":"编辑";
+    eb.onclick=async()=>{if(isNew&&openId&&openId!==b.id)setSchedule(BLOCKS.filter(x=>x.id!==openId));isNew=false;openId=openId===b.id?null:b.id;await renderTimeline();renderNow();if(openId)$("eName")?.focus()};
+    r.append(cb,tm,w,eb);box.append(r);
+    if(openId===b.id)box.append(await buildEditor(b,k));
+  }
+}
+
+$("addBtn").onclick=async()=>{
+  if(isNew&&openId)setSchedule(BLOCKS.filter(x=>x.id!==openId));
+  const now=new Date(), s=`${pad(now.getHours())}:00`, e=`${pad((now.getHours()+1)%24)}:00`;
+  const nb={id:"u"+Date.now().toString(36),s,e,name:"新的安排",note:""};
+  setSchedule([...BLOCKS,nb]);openId=nb.id;isNew=true;
+  await renderTimeline();renderNow();
+  const n=$("eName");if(n){n.scrollIntoView({block:"center"});n.select()}
+};
+function flash(msg){$("schedMsg").textContent=msg;clearTimeout(flash.t);flash.t=setTimeout(()=>$("schedMsg").textContent="",2500)}
+$("dayResetBtn").onclick=async function(){
+  if(armed!=="dayreset"){armed="dayreset";this.textContent="再点一次确认（这一天的改动会清除）";return}
+  armed=null;const k=viewKey(),v=await store.get(k);delete v.sched;store.put(k,v);
+  openId=null;isNew=false;await loadView();await renderTimeline();renderNow();renderStrip();flash("这一天已恢复为默认时间表");
+};
+$("setDefaultBtn").onclick=async function(){
+  if(armed!=="setdef"){armed="setdef";this.textContent="再点一次确认（没单独改过的日子都会用它）";return}
+  armed=null;if(isNew&&openId)setSchedule(BLOCKS.filter(x=>x.id!==openId));openId=null;isNew=false;
+  TEMPLATE=clone(BLOCKS);store.putSched(TEMPLATE);await renderTimeline();renderNow();flash("已设为默认时间表");
+};
+$("docResetBtn").onclick=async function(){
+  if(armed!=="docreset"){armed="docreset";this.textContent="再点一次确认（默认时间表恢复成文档原版）";return}
+  armed=null;TEMPLATE=clone(DEFAULT);store.putSched(TEMPLATE);openId=null;isNew=false;
+  await loadView();await renderTimeline();renderNow();flash("默认时间表已恢复成文档原版；单独改过的日子不受影响");
+};
+
+async function renderToday(){
+  const live=viewingToday(), v=await store.get(viewKey()), p=v.plan||{};
+  $("focusEyebrow").textContent=live?"今天唯一最重要的结果（昨晚定的）":`${dayLabel(viewD())}唯一最重要的结果`;
+  $("editToday").textContent=live?"编辑今天的计划":"编辑这一天的计划";
+  const c=$("todayCore");
+  if(p.core){c.textContent=p.core;c.classList.remove("empty")}
+  else{c.textContent=live?"还没有计划。今晚 21:45 在下面写好明天的，或者现在补一个。":"还没写。在下面的计划里填写这一天的核心结果。";c.classList.add("empty")}
+  const aux=[p.aux1,p.aux2].filter(Boolean), ul=$("todayAux");
+  ul.innerHTML="";aux.forEach(a=>{const li=document.createElement("li");li.textContent=a;ul.append(li)});ul.hidden=!aux.length;
+  const g=$("todayGold");g.hidden=!p.gold;g.textContent=p.gold?"黄金时间："+p.gold:"";
+}
+
+function planKey(){if(!viewingToday())return viewKey();const d=todayD();return key(editTarget==="tomorrow"?addDays(d,1):d)}
+async function fillPlan(){
+  const v=await store.get(planKey()), p=v.plan||{};
+  $("planTitle").firstChild.textContent=!viewingToday()?dayLabel(viewD())+"计划 ":editTarget==="tomorrow"?"明日计划 ":"今日计划 ";
+  $("pCore").value=p.core||"";$("pAux1").value=p.aux1||"";$("pAux2").value=p.aux2||"";$("pGold").value=p.gold||"";
+}
+async function savePlan(){
+  const k=planKey(), v=await store.get(k);
+  v.plan={core:$("pCore").value.trim(),aux1:$("pAux1").value.trim(),aux2:$("pAux2").value.trim(),gold:$("pGold").value.trim()};
+  store.put(k,v);$("planSaved").textContent="已保存";clearTimeout(savePlan.t);savePlan.t=setTimeout(()=>$("planSaved").textContent="",1500);
+  if(k===viewKey())renderToday();
+  clearTimeout(savePlan.s);savePlan.s=setTimeout(renderStrip,500);
+}
+["pCore","pAux1","pAux2","pGold"].forEach(id=>$(id).addEventListener("input",savePlan));
+$("editToday").onclick=()=>{if(viewingToday())editTarget="today";fillPlan();$("planPanel").scrollIntoView({behavior:"smooth",block:"start"});$("pCore").focus({preventScroll:true})};
+
+async function renderChecks(){
+  const today=viewD(), k=key(today), v=await store.get(k), box=$("checks");box.innerHTML="";
+  CHECKS.forEach((q,i)=>{const l=document.createElement("label");const c=document.createElement("input");c.type="checkbox";c.id="c"+i;c.checked=!!v.check[i];
+    c.onchange=async()=>{const vv=await store.get(k);vv.check[i]=c.checked;store.put(k,vv);renderWeek()};
+    l.append(c,document.createTextNode(q));box.append(l)});
+  renderWeek();
+}
+async function renderWeek(){
+  const today=viewD(), w=$("week");w.innerHTML="";
+  const tv=await store.get(key(today));$("score").textContent=`${CHECKS.filter((_,i)=>tv.check[i]).length} / 4`;
+  for(let n=6;n>=0;n--){const d=addDays(today,-n), v=await store.get(key(d));
+    const c=document.createElement("div");c.className="d"+(n===0?" today":"");
+    const pips=document.createElement("div");pips.className="pips";
+    for(let i=0;i<4;i++){const s=document.createElement("i");if(v.check[i])s.className="on";pips.append(s)}
+    const lb=document.createElement("b");lb.style.fontWeight=n===0?"700":"400";lb.textContent=n===0?(rel(d)||MD(d)):"周"+WD[d.getDay()];
+    c.append(pips,lb);w.append(c)}
+}
+
+async function renderStrip(){
+  const t=todayD(), el=$("strip"), vk=viewKey(); el.innerHTML="";
+  let sel=null;
+  for(let n=-3;n<=13;n++){
+    const d=addDays(t,n), k=key(d), v=await store.get(k);
+    const b=document.createElement("button");b.type="button";
+    b.className="day"+(k===vk?" sel":"")+(n===0?" today":"")+(n<0?" before":"");
+    const wd=document.createElement("span");wd.className="wd";wd.textContent=n===0?"今天":n===1?"明天":"周"+WD[d.getDay()];
+    const dn=document.createElement("span");dn.className="dn";dn.textContent=d.getDate();
+    const dot=document.createElement("i");dot.className="dot";
+    const has=(v.plan&&v.plan.core)||Object.keys(v.memo||{}).length||hasOwn(v);
+    if(!has)dot.classList.add("off");
+    b.setAttribute("aria-label",MD(d)+(has?"，已有安排":""));
+    b.append(wd,dn,dot);b.onclick=()=>go(d);el.append(b);
+    if(k===vk)sel=b;
+  }
+  if(sel)el.scrollLeft=sel.offsetLeft-el.offsetLeft-el.clientWidth/2+sel.clientWidth/2;
+  $("pickDate").value=vk;
+  const live=viewingToday();
+  $("backToday").hidden=live;
+  $("viewBanner").hidden=live;
+  if(!live)$("viewBanner").textContent=`正在安排 ${dayLabel(viewD())} · 星期${WD[viewD().getDay()]}`;
+}
+async function renderAll(){
+  if(viewingToday()&&!editTarget)editTarget=autoTarget();
+  await loadView();await renderStrip();await renderTimeline();await renderToday();await renderChecks();await fillPlan();await renderNow();
+}
+async function go(d){
+  viewDay=key(d)===key(todayD())?null:d;
+  openId=null;isNew=false;editTarget=viewDay?null:autoTarget();
+  await renderAll();
+}
+$("pickDate").addEventListener("change",e=>{const p=e.target.value.split("-").map(Number);if(p.length===3&&p[0])go(new Date(p[0],p[1]-1,p[2]))});
+$("backToday").onclick=()=>go(todayD());
+
+/* ---------- backup & restore (offline file) ---------- */
+function localKeys(){const out=[];try{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k==="schedule"||k.startsWith("day:"))out.push(k)}}catch(e){}return out}
+function updateStat(){
+  if(store.db)return;
+  const days=localKeys().filter(k=>k.startsWith("day:")).length;
+  let t="";try{const ls=+localStorage.getItem("meta:lastSaved");if(ls){const d=new Date(ls);t=` · 最近保存 ${d.getMonth()+1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`}}catch(e){}
+  $("storeStat").textContent=`这台手机上有 ${days} 天的记录${t}`;
+}
+function makeBackup(){
+  const data={};localKeys().forEach(k=>{try{data[k]=JSON.parse(localStorage.getItem(k))}catch(e){}});
+  return JSON.stringify({app:"每日时间表",v:1,at:new Date().toISOString(),data});
+}
+async function restore(text){
+  let o;try{o=JSON.parse(text.trim())}catch(e){$("bkMsg").textContent="这不是有效的备份内容，请确认复制完整。";return}
+  if(!o||!o.data||typeof o.data!=="object"){$("bkMsg").textContent="这不是有效的备份内容，请确认复制完整。";return}
+  let n=0;
+  for(const [k,v] of Object.entries(o.data)){
+    if(k!=="schedule"&&!k.startsWith("day:"))continue;
+    try{
+      if(k.startsWith("day:")){ // merge with what's already here so nothing newer is lost
+        const cur=JSON.parse(localStorage.getItem(k)||"null")||{};
+        const mg={done:{...(v.done||{}),...(cur.done||{})},check:{...(v.check||{}),...(cur.check||{})},memo:{...(v.memo||{}),...(cur.memo||{})},
+          plan:(cur.plan&&cur.plan.core)?cur.plan:(v.plan||cur.plan||{})};
+        localStorage.setItem(k,JSON.stringify(mg));
+      }else localStorage.setItem(k,JSON.stringify(v));
+      n++;
+    }catch(e){}
+  }
+  store.cache={};const sc=await store.getSched();TEMPLATE=sc||clone(DEFAULT);
+  openId=null;isNew=false;await renderAll();updateStat();
+  $("bkMsg").textContent=`已恢复 ${n} 项记录。`;
+}
+function setupBackup(){
+  if(store.db){$("backupPanel").hidden=true;return}
+  $("backupPanel").hidden=false;updateStat();
+  $("expBtn").onclick=()=>{
+    const txt=makeBackup(), d=todayD();
+    try{
+      const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([txt],{type:"application/json"}));
+      a.download=`时间表备份-${key(d)}.json`;document.body.append(a);a.click();a.remove();
+      $("bkMsg").textContent="已导出备份文件，一般在手机的“下载”文件夹里。";
+    }catch(e){$("bkMsg").textContent="导出文件失败，请用下面的“文字备份”。"}
+  };
+  $("impFile").onchange=e=>{const f=e.target.files&&e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>restore(String(r.result));r.readAsText(f);e.target.value=""};
+  $("copyBk").onclick=()=>{
+    const t=$("bkText");t.value=makeBackup();t.select();
+    const done=()=>$("bkMsg").textContent="已复制。粘贴到备忘录里保存好，下次粘贴回来点“从这段文字恢复”。";
+    try{navigator.clipboard.writeText(t.value).then(done,()=>{document.execCommand("copy");done()})}catch(e){try{document.execCommand("copy")}catch(_){ }done()}
+  };
+  $("restoreBk").onclick=()=>restore($("bkText").value);
+}
+window.addEventListener("pagehide",()=>{try{localStorage.setItem("meta:lastSeen",String(Date.now()))}catch(e){}});
+
+let lastDay=null, busy=false;
+async function tick(){
+  if(busy)return;busy=true;
+  try{
+    const k=key(dayOf(new Date()));
+    if(k!==lastDay){lastDay=k;openId=null;isNew=false;await renderAll()}
+    else await renderNow();
+  }finally{busy=false}
+}
+/* Refresh the moment the phone wakes up or the page comes back to the front */
+["visibilitychange","focus","pageshow"].forEach(ev=>window.addEventListener(ev,()=>{if(!document.hidden)tick()}));
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)tick()});
+(async()=>{
+  await renderTimeline(); renderNow();
+  await store.init(); store.cache={};
+  const saved=await store.getSched(); if(saved)TEMPLATE=saved;
+  setupBackup();
+  lastDay=null; await tick(); setInterval(tick,1000);
+})();
+</script>
+
+<script>
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}))}
+try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch(e){}
+</script>
+</body></html>
