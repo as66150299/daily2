@@ -171,8 +171,10 @@ label.btn{display:inline-flex;align-items:center;cursor:pointer}
 
   <section>
     <h3 class="sec">今日时间表 <small>做完就勾上，点“编辑”可修改</small></h3>
+    <p class="hint" id="schedState"></p>
     <div id="timeline"></div>
-    <div class="tools"><button class="btn" id="addBtn" type="button">＋ 添加一项</button><button class="btn" id="resetBtn" type="button">恢复文档原始时间表</button></div>
+    <div class="tools"><button class="btn" id="addBtn" type="button">＋ 添加一项</button><button class="btn" id="dayResetBtn" type="button" hidden>这一天恢复默认时间表</button><button class="btn" id="setDefaultBtn" type="button">把这一天设为以后的默认</button><button class="btn" id="docResetBtn" type="button">默认恢复成文档原版</button></div>
+    <div class="saved" id="schedMsg"></div>
   </section>
 
   <section class="panel night" id="planPanel">
@@ -262,8 +264,17 @@ function phaseOf(b){const t=sortKey(b);return t<720?"am":t<1050?"pm":t<1305?"ev"
 const isNight=b=>sortKey(b)>=1230;
 const isAnchor=b=>!!b.anchor;
 
-let BLOCKS=clone(DEFAULT);
-function setSchedule(items){BLOCKS=items.slice().sort((a,b)=>sortKey(a)-sortKey(b))}
+/* Each day can have its own schedule (day.sched); days without one use the default TEMPLATE */
+let TEMPLATE=clone(DEFAULT);
+let BLOCKS=clone(DEFAULT);   // schedule of the day being viewed
+const sorted=items=>items.slice().sort((a,b)=>sortKey(a)-sortKey(b));
+function setSchedule(items){BLOCKS=sorted(items)}   // local only, not saved
+const hasOwn=v=>Array.isArray(v.sched)&&v.sched.length>0;
+async function blocksFor(k){const v=await store.get(k);return sorted(hasOwn(v)?v.sched:TEMPLATE)}
+async function loadView(){BLOCKS=await blocksFor(viewKey())}
+async function saveDaySched(items){            // save to the viewed day only
+  const k=viewKey(),v=await store.get(k);v.sched=sorted(items);store.put(k,v);BLOCKS=clone(v.sched);
+}
 
 /* ---------- storage: private db per viewer when online, browser storage otherwise ---------- */
 const store={db:null,uid:null,cache:{},timers:{},
@@ -318,11 +329,11 @@ const dayLabel=d=>MD(d)+(rel(d)?"（"+rel(d)+"）":"");
 const autoTarget=()=>dayMin(nowMin(new Date()))>=m("17:30")?"tomorrow":"today";
 
 const nowMin=now=>now.getHours()*60+now.getMinutes()+now.getSeconds()/60;
-function curBlock(now){
+function curBlock(now,L){
   const t=dayMin(nowMin(now));
-  return BLOCKS.find(b=>t>=sortKey(b)&&t<endKey(b))||BLOCKS.find(b=>{const t2=t+1440;return t2>=sortKey(b)&&t2<endKey(b)})||null;
+  return L.find(b=>t>=sortKey(b)&&t<endKey(b))||L.find(b=>{const t2=t+1440;return t2>=sortKey(b)&&t2<endKey(b)})||null;
 }
-function nextAfter(now){const t=dayMin(nowMin(now));return BLOCKS.find(b=>sortKey(b)>t)||BLOCKS[0]}
+function nextAfter(now,L){const t=dayMin(nowMin(now));return L.find(b=>sortKey(b)>t)||L[0]}
 const fmtLeft=n=>{n=Math.max(0,Math.ceil(n));return n>=60?`${Math.floor(n/60)} 小时 ${n%60} 分`:`${n} 分钟`};
 const range=b=>`${b.s} – ${b.e}`;
 
@@ -330,10 +341,13 @@ async function renderNow(){
   const now=new Date(), d=dayOf(now);
   $("date").textContent=`${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日 · 星期${WD[now.getDay()]}`;
   $("clock").textContent=`${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-  const t=dayMin(nowMin(now)), b=curBlock(now), card=$("now");
-  if(b){
+  const live=viewingToday();
+  const TB=live?BLOCKS:await blocksFor(key(d));   // the "now" card always follows today's schedule
+  const t=dayMin(nowMin(now)), b=TB.length?curBlock(now,TB):null, card=$("now");
+  if(!TB.length){card.className="now";$("nowEyebrow").textContent="现在";$("nowName").textContent="今天没有安排";["nowRange","nowNote","nowLeft","nowNext"].forEach(id=>$(id).textContent="");$("nowBar").style.width="0"}
+  else if(b){
     let s=sortKey(b),e=endKey(b),x=t<s?t+1440:t;
-    const nx=BLOCKS[(BLOCKS.indexOf(b)+1)%BLOCKS.length];
+    const nx=TB[(TB.indexOf(b)+1)%TB.length];
     card.className="now"+(b.gold?" gold":isNight(b)?" night":"");
     $("nowEyebrow").textContent="现在 · "+PHASES[phaseOf(b)];
     $("nowName").textContent=(b.gold?"⭐ ":isNight(b)?"🌙 ":"")+b.name;
@@ -343,7 +357,7 @@ async function renderNow(){
     $("nowLeft").textContent="还剩 "+fmtLeft(e-x);
     $("nowNext").textContent=`接下来 ${nx.s} ${nx.name}`;
   }else{
-    const nx=nextAfter(now);let wait=sortKey(nx)-t;if(wait<0)wait+=1440;
+    const nx=nextAfter(now,TB);let wait=sortKey(nx)-t;if(wait<0)wait+=1440;
     card.className="now";
     $("nowEyebrow").textContent="现在 · 空档";
     $("nowName").textContent="自由时间";
@@ -353,14 +367,13 @@ async function renderNow(){
     $("nowLeft").textContent=`${fmtLeft(wait)}后开始下一项`;
     $("nowNext").textContent=`接下来 ${nx.s} ${nx.name}`;
   }
-  const live=viewingToday();
   document.querySelectorAll(".row").forEach(r=>{
     const bb=BLOCKS.find(x=>x.id===r.dataset.id); if(!bb)return;
     r.classList.toggle("cur",live&&bb===b);
     r.classList.toggle("past",live&&bb!==b&&t>=endKey(bb));
   });
   const v=await store.get(key(d));
-  const golds=BLOCKS.filter(x=>x.gold);
+  const golds=TB.filter(x=>x.gold);
   const goldDone=golds.length&&golds.every(x=>isDone(v,x));
   $("rescue").hidden=!(live&&golds.length&&t>=m("11:30")&&t<m("17:30")&&!goldDone);
   const want=autoTarget();
@@ -385,7 +398,7 @@ async function buildEditor(b,k){
       const s=$("eS").value,e=$("eE").value,name=$("eName").value.trim();
       if(!s||!e||!name){$("eName").focus();return}
       const items=BLOCKS.map(x=>x.id===b.id?{...x,s,e,name,note:$("eNote").value.trim()}:x);
-      setSchedule(items);store.putSched(BLOCKS);
+      await saveDaySched(items);
       const vv=await store.get(k);const memo=$("eMemo").value.trim();
       if(memo)vv.memo[b.id]=memo;else delete vv.memo[b.id];store.put(k,vv);
       openId=null;isNew=false;await renderTimeline();renderNow();
@@ -396,7 +409,7 @@ async function buildEditor(b,k){
     }),
     btn(isNew?"":"删除这一项","danger",async function(){
       if(armed!=="del"){armed="del";this.textContent="再点一次确认删除";return}
-      armed=null;setSchedule(BLOCKS.filter(x=>x.id!==b.id));store.putSched(BLOCKS);
+      armed=null;await saveDaySched(BLOCKS.filter(x=>x.id!==b.id));
       openId=null;await renderTimeline();renderNow();
     })
   );
@@ -408,6 +421,11 @@ async function buildEditor(b,k){
 async function renderTimeline(){
   const k=viewKey(), v=await store.get(k);
   const el=$("timeline"); el.innerHTML="";armed=null;
+  const own=hasOwn(v);
+  $("schedState").textContent=own?"这一天的专属时间表":"这一天用的是默认时间表，改动只影响这一天";
+  $("dayResetBtn").hidden=!own;
+  $("dayResetBtn").textContent="这一天恢复默认时间表";$("setDefaultBtn").textContent="把这一天设为以后的默认";$("docResetBtn").textContent="默认恢复成文档原版";
+  if(!BLOCKS.length){const p=document.createElement("p");p.className="hint";p.textContent="这一天还没有安排，点下面的“＋ 添加一项”。";el.append(p)}
   let phase=null, box=null;
   for(const b of BLOCKS){
     const ph=phaseOf(b);
@@ -440,10 +458,21 @@ $("addBtn").onclick=async()=>{
   await renderTimeline();renderNow();
   const n=$("eName");if(n){n.scrollIntoView({block:"center"});n.select()}
 };
-$("resetBtn").onclick=async function(){
-  if(armed!=="reset"){armed="reset";this.textContent="再点一次确认恢复（你的修改会被覆盖）";return}
-  armed=null;this.textContent="恢复文档原始时间表";
-  setSchedule(clone(DEFAULT));store.putSched(BLOCKS);openId=null;isNew=false;await renderTimeline();renderNow();
+function flash(msg){$("schedMsg").textContent=msg;clearTimeout(flash.t);flash.t=setTimeout(()=>$("schedMsg").textContent="",2500)}
+$("dayResetBtn").onclick=async function(){
+  if(armed!=="dayreset"){armed="dayreset";this.textContent="再点一次确认（这一天的改动会清除）";return}
+  armed=null;const k=viewKey(),v=await store.get(k);delete v.sched;store.put(k,v);
+  openId=null;isNew=false;await loadView();await renderTimeline();renderNow();renderStrip();flash("这一天已恢复为默认时间表");
+};
+$("setDefaultBtn").onclick=async function(){
+  if(armed!=="setdef"){armed="setdef";this.textContent="再点一次确认（没单独改过的日子都会用它）";return}
+  armed=null;if(isNew&&openId)setSchedule(BLOCKS.filter(x=>x.id!==openId));openId=null;isNew=false;
+  TEMPLATE=clone(BLOCKS);store.putSched(TEMPLATE);await renderTimeline();renderNow();flash("已设为默认时间表");
+};
+$("docResetBtn").onclick=async function(){
+  if(armed!=="docreset"){armed="docreset";this.textContent="再点一次确认（默认时间表恢复成文档原版）";return}
+  armed=null;TEMPLATE=clone(DEFAULT);store.putSched(TEMPLATE);openId=null;isNew=false;
+  await loadView();await renderTimeline();renderNow();flash("默认时间表已恢复成文档原版；单独改过的日子不受影响");
 };
 
 async function renderToday(){
@@ -502,7 +531,7 @@ async function renderStrip(){
     const wd=document.createElement("span");wd.className="wd";wd.textContent=n===0?"今天":n===1?"明天":"周"+WD[d.getDay()];
     const dn=document.createElement("span");dn.className="dn";dn.textContent=d.getDate();
     const dot=document.createElement("i");dot.className="dot";
-    const has=(v.plan&&v.plan.core)||Object.keys(v.memo||{}).length;
+    const has=(v.plan&&v.plan.core)||Object.keys(v.memo||{}).length||hasOwn(v);
     if(!has)dot.classList.add("off");
     b.setAttribute("aria-label",MD(d)+(has?"，已有安排":""));
     b.append(wd,dn,dot);b.onclick=()=>go(d);el.append(b);
@@ -517,7 +546,7 @@ async function renderStrip(){
 }
 async function renderAll(){
   if(viewingToday()&&!editTarget)editTarget=autoTarget();
-  await renderStrip();await renderTimeline();await renderToday();await renderChecks();await fillPlan();await renderNow();
+  await loadView();await renderStrip();await renderTimeline();await renderToday();await renderChecks();await fillPlan();await renderNow();
 }
 async function go(d){
   viewDay=key(d)===key(todayD())?null:d;
@@ -555,7 +584,7 @@ async function restore(text){
       n++;
     }catch(e){}
   }
-  store.cache={};const sc=await store.getSched();setSchedule(sc||clone(DEFAULT));
+  store.cache={};const sc=await store.getSched();TEMPLATE=sc||clone(DEFAULT);
   openId=null;isNew=false;await renderAll();updateStat();
   $("bkMsg").textContent=`已恢复 ${n} 项记录。`;
 }
@@ -595,7 +624,7 @@ document.addEventListener("visibilitychange",()=>{if(!document.hidden)tick()});
 (async()=>{
   await renderTimeline(); renderNow();
   await store.init(); store.cache={};
-  const saved=await store.getSched(); if(saved)setSchedule(saved);
+  const saved=await store.getSched(); if(saved)TEMPLATE=saved;
   setupBackup();
   lastDay=null; await tick(); setInterval(tick,1000);
 })();
